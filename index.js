@@ -6,6 +6,9 @@ import { refreshNews } from 'lib/news'
 import { listActiveAlerts, deactivateAlert } from 'lib/store'
 
 let offset = 0
+let shuttingDown = false
+let alertTimer
+let newsTimer
 
 async function getUpdates() {
   const updates = await api.getUpdates({
@@ -58,7 +61,7 @@ async function checkAlerts() {
 }
 
 async function main() {
-  while (true) {
+  while (!shuttingDown) {
     try {
       const me = await api.getMe()
       console.log(`Bot running: @${me.username}`)
@@ -68,19 +71,33 @@ async function main() {
       await new Promise((r) => setTimeout(r, 10000))
     }
   }
-  setInterval(checkAlerts, 10 * 60 * 1000)
+  if (shuttingDown) return
+  alertTimer = setInterval(checkAlerts, 10 * 60 * 1000)
   checkAlerts()
-  setInterval(refreshNews, 30 * 60 * 1000)
+  newsTimer = setInterval(refreshNews, 30 * 60 * 1000)
   refreshNews()
-  while (true) {
+  while (!shuttingDown) {
     try {
       await getUpdates()
     } catch (err) {
+      if (shuttingDown) break
       console.error('Polling error:', err.message)
       await new Promise((r) => setTimeout(r, 3000))
     }
   }
 }
+
+function shutdown(signal) {
+  if (shuttingDown) return
+  shuttingDown = true
+  clearInterval(alertTimer)
+  clearInterval(newsTimer)
+  console.log(`Received ${signal}; shutting down`)
+}
+
+process.once('SIGINT', () => shutdown('SIGINT'))
+process.once('SIGTERM', () => shutdown('SIGTERM'))
+process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err))
 
 main().catch((err) => {
   console.error('Fatal:', err)
