@@ -1,5 +1,5 @@
 import { api } from 'lib/botapi'
-import { mainMenuKeyboard } from 'lib/keyboard'
+import { mainMenuKeyboard, navKeyboard } from 'lib/keyboard'
 import { upsertUser, isAdmin, getSession, setSession, clearSession, getLang } from 'lib/session'
 import {
   updateRate,
@@ -26,6 +26,9 @@ import { validateRefCode } from 'lib/payment'
 import { REVEAL_PRICE } from 'lib/config'
 import { banner, DIV, footer } from 'lib/style'
 
+const DISCLAIMER =
+  '⚖️ <b>سلب مسئوليت:</b> مديريت و مالکيت ربات هيچ مسئوليتي در قبال موارد ناقص، آلوده، کالاي خراب يا بدعهدي معامله‌کنندگان و مبادله‌کنندگان غذا و کالا ندارد؛ همه موارد به عهده طرفين معامله است.'
+
 const WELCOME =
   `${banner('سوپر اپليکيشن پيرانشهر', '💎')}\n\n` +
   '✨ شهر شما، در يک اپليکيشن\n\n' +
@@ -34,6 +37,7 @@ const WELCOME =
   '🏪 <b>کسب‌وکارهاي</b> محلي شهر\n' +
   '🎉 از <b>رويدادهاي</b> شهر باخبر شو\n' +
   '🔔 <b>هشدار نرخ</b> بگير\n\n' +
+  `${DISCLAIMER}\n\n` +
   `از منوي زير انتخاب کنيد:\n\n${footer()}`
 
 const HELP =
@@ -55,6 +59,7 @@ const HELP =
   '<code>/rejectbiz &lt;id&gt;</code> - رد کسب‌وکار\n' +
   '<code>/addevent عنوان|زمان|مکان|توضيحات</code> - رويداد\n' +
   '<code>/featured &lt;آيدي آگهي&gt; &lt;روز&gt;</code> - ويژه کردن\n\n' +
+  `${DISCLAIMER}\n\n` +
   footer()
 
 const ALERT_CODES = ['usd', 'eur', 'try', 'iqd', 'gold18', 'gold24', 'mesghal', 'coin', 'silver', 'ons', 'silver_ons']
@@ -388,75 +393,88 @@ export default async function (update) {
 async function handleAdFlow(tgId, session, text) {
   const step = session.state
   const data = session.data || {}
+  const nav = navKeyboard('step_back')
 
   if (step === 'slot_field') {
     data.title = `نوبت خالی: ${text}`
+    data._back = 'slot_field'
     await setSession(tgId, 'ad_price', data)
-    await api.sendMessage({ chat_id: tgId, text: 'هزينه نوبت يا ساعت را وارد کنيد (يا: توافقي):' })
+    await api.sendMessage({ chat_id: tgId, text: 'هزينه نوبت يا ساعت را وارد کنيد (يا: توافقي):', reply_markup: nav })
     return
   }
 
   if (step === 'lost_field' || step === 'found_field') {
     data.title = `${step === 'lost_field' ? 'گمشده' : 'پیداشده'}: ${text}`
+    data._back = step
     await setSession(tgId, 'ad_price', data)
     await api.sendMessage({
       chat_id: tgId,
       text: step === 'lost_field' ? 'پاداش تعیین‌شده را وارد کنيد (يا: رايگان):' : 'قيمت را وارد کنيد (يا: رايگان):',
+      reply_markup: nav,
     })
     return
   }
 
   if (step === 'workforce_field') {
     data.title = `درخواست نیروی کار: ${text}`
+    data._back = 'workforce_field'
     await setSession(tgId, 'ad_price', data)
-    await api.sendMessage({ chat_id: tgId, text: 'دستمزد پيشنهادي را وارد کنيد (يا: توافقي):' })
+    await api.sendMessage({ chat_id: tgId, text: 'دستمزد پيشنهادي را وارد کنيد (يا: توافقي):', reply_markup: nav })
     return
   }
 
   if (step === 'rest_field') {
-    data.title = `غذای اضافه رستوران: ${text}`
+    data.title = `غذای اضافه و تخفیف‌دار: ${text}`
+    data._back = 'rest_field'
     await setSession(tgId, 'ad_price', data)
-    await api.sendMessage({ chat_id: tgId, text: 'قيمت با تخفيف را وارد کنيد (يا: توافقي):' })
+    await api.sendMessage({ chat_id: tgId, text: 'قيمت با تخفيف را وارد کنيد (يا: توافقي):', reply_markup: nav })
     return
   }
 
   if (step === 'job_field') {
     data.title = `درخواست استخدام: ${text}`
+    data._back = 'job_field'
     await setSession(tgId, 'ad_price', data)
-    await api.sendMessage({ chat_id: tgId, text: 'دستمزد مورد انتظار را وارد کنيد (يا: توافقي):' })
+    await api.sendMessage({ chat_id: tgId, text: 'دستمزد مورد انتظار را وارد کنيد (يا: توافقي):', reply_markup: nav })
     return
   }
 
   if (step === 'ad_title') {
     data.title = text
+    data._back = 'ad_title'
     await setSession(tgId, 'ad_price', data)
     await api.sendMessage({
       chat_id: tgId,
       text: data.type === 'درخواست' ? 'دستمزد مورد انتظار را وارد کنيد (يا: توافقي):' : 'قيمت را وارد کنيد (يا: رايگان):',
+      reply_markup: nav,
     })
     return
   }
 
   if (step === 'ad_price') {
     data.price = text
+    data._back = 'ad_price'
     await setSession(tgId, 'ad_description', data)
-    await api.sendMessage({ chat_id: tgId, text: 'توضيحات را وارد کنيد:' })
+    await api.sendMessage({ chat_id: tgId, text: 'توضيحات را وارد کنيد:', reply_markup: nav })
     return
   }
 
   if (step === 'ad_description') {
     data.description = text
+    data._back = 'ad_description'
     await setSession(tgId, 'ad_contact', data)
-    await api.sendMessage({ chat_id: tgId, text: 'شماره تماس يا راه ارتباطي را وارد کنيد:' })
+    await api.sendMessage({ chat_id: tgId, text: 'شماره تماس يا راه ارتباطي را وارد کنيد:', reply_markup: nav })
     return
   }
 
   if (step === 'ad_contact') {
     data.contact = text
+    data._back = 'ad_contact'
     await setSession(tgId, 'ad_tg', data)
     await api.sendMessage({
       chat_id: tgId,
       text: 'آيدي تلگرام خود را وارد کنيد (اختياري - براي دکمه تلگرام). اگر نداريد /skip را بزنيد:',
+      reply_markup: nav,
     })
     return
   }
@@ -476,5 +494,5 @@ async function handleAdFlow(tgId, session, text) {
     return
   }
 
-  await api.sendMessage({ chat_id: tgId, text: 'دستور نامشخص.' })
+  await api.sendMessage({ chat_id: tgId, text: 'دستور نامشخص.', reply_markup: nav })
 }

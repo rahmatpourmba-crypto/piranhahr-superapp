@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --env-file=.env --import ./loader.mjs index.js",
-    "dev": "node --env-file=.env --import ./loader.mjs --watch index.js"
+    "start": "node --import ./loader.mjs index.js",
+    "dev": "node --import ./loader.mjs --watch index.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
   }
 }

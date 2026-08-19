@@ -1,5 +1,5 @@
 import { api } from 'lib/botapi'
-import { mainMenuKeyboard, categoryKeyboard, typeKeyboard, backKeyboard, CATEGORY_NAMES, TYPE_NAMES } from 'lib/keyboard'
+import { mainMenuKeyboard, categoryKeyboard, typeKeyboard, backKeyboard, navKeyboard, CATEGORY_NAMES, TYPE_NAMES } from 'lib/keyboard'
 import { upsertUser, isAdmin, getSession, setSession, clearSession, getLang, setLang } from 'lib/session'
 import {
   listAdsByCategory,
@@ -43,10 +43,14 @@ function payText(purpose) {
 }
 
 function payKeyboard() {
-  return { inline_keyboard: [[{ text: 'بازگشت', callback_data: 'cancel_pay' }]] }
+  return {
+    inline_keyboard: [
+      [{ text: '🏠 منوی اصلی', callback_data: 'back_main' }, { text: '🔙 بازگشت', callback_data: 'cancel_pay' }],
+    ],
+  }
 }
 
-async function sendCategoryAds(tgId, category) {
+async function sendCategoryAds(tgId, category, backCallback) {
   const ads = await listAdsByCategory(category)
   if (ads.length === 0) {
     await api.sendMessage({ chat_id: tgId, text: 'آگهي اي در اين دسته ثبت نشده است.' })
@@ -59,12 +63,16 @@ async function sendCategoryAds(tgId, category) {
     const buttonText = canSee
       ? '📞 نمايش شماره تماس'
       : `نمايش شماره تماس (${REVEAL_PRICE.toLocaleString('fa-IR')} تومان)`
+    const navRow = [
+      { text: '🏠 منوی اصلی', callback_data: 'back_main' },
+      ...(backCallback ? [{ text: '🔙 بازگشت', callback_data: backCallback }] : []),
+    ]
     await api.sendMessage({
       chat_id: tgId,
       text: formatAd(ad),
       parse_mode: 'HTML',
       reply_markup: {
-        inline_keyboard: [[{ text: buttonText, callback_data: `reveal_${ad.id}` }]],
+        inline_keyboard: [[{ text: buttonText, callback_data: `reveal_${ad.id}` }], navRow],
       },
     })
   }
@@ -94,6 +102,62 @@ export default async function (update) {
   }
 
     if (data === 'back_main') {
+    await clearSession(tgId)
+    const lang = await getLang(tgId)
+    await api.sendMessage({
+      chat_id: tgId,
+      text: `${banner('منوي اصلي', '💎')}\n\nلطفا انتخاب کنيد:`,
+      reply_markup: mainMenuKeyboard(lang),
+      parse_mode: 'HTML',
+    })
+    return
+  }
+
+  if (data === 'step_back') {
+    const session = await getSession(tgId)
+    if (!session || !session.data || !session.data._back) {
+      await clearSession(tgId)
+      const lang = await getLang(tgId)
+      await api.sendMessage({
+        chat_id: tgId,
+        text: `${banner('منوي اصلي', '💎')}\n\nلطفا انتخاب کنيد:`,
+        reply_markup: mainMenuKeyboard(lang),
+        parse_mode: 'HTML',
+      })
+      return
+    }
+    const prev = session.data._back
+    const d = session.data
+    const nav = navKeyboard('step_back')
+
+    const questions = {
+      ad_title: 'عنوان آگهي را وارد کنيد:',
+      ad_description: 'توضيحات را وارد کنيد:',
+      ad_contact: 'شماره تماس يا راه ارتباطي را وارد کنيد:',
+      ad_tg: 'آيدي تلگرام خود را وارد کنيد (اختياري - براي دکمه تلگرام). اگر نداريد /skip را بزنيد:',
+    }
+
+    if (prev === 'ad_price') {
+      const backMap = {
+        job_field: 'دستمزد مورد انتظار را وارد کنيد (يا: توافقي):',
+        workforce_field: 'دستمزد پيشنهادي را وارد کنيد (يا: توافقي):',
+        rest_field: 'قيمت با تخفيف را وارد کنيد (يا: توافقي):',
+        slot_field: 'هزينه نوبت يا ساعت را وارد کنيد (يا: توافقي):',
+        lost_field: 'پاداش تعیین‌شده را وارد کنيد (يا: رايگان):',
+        found_field: 'قيمت را وارد کنيد (يا: رايگان):',
+        ad_title: d.type === 'درخواست' ? 'دستمزد مورد انتظار را وارد کنيد (يا: توافقي):' : 'قيمت را وارد کنيد (يا: رايگان):',
+      }
+      await setSession(tgId, 'ad_price', d)
+      await api.sendMessage({ chat_id: tgId, text: backMap[d._back] || 'قيمت را وارد کنيد (يا: رايگان):', reply_markup: nav })
+      return
+    }
+
+    if (questions[prev]) {
+      await setSession(tgId, prev, d)
+      await api.sendMessage({ chat_id: tgId, text: questions[prev], reply_markup: nav })
+      return
+    }
+
     await clearSession(tgId)
     const lang = await getLang(tgId)
     await api.sendMessage({
@@ -138,17 +202,21 @@ export default async function (update) {
         'خود غذا کاملاً <b>رایگان</b> است؛ فقط کمیسیون سایت پرداخت می‌شود.\n' +
         'برای مشاهده شماره تماس طرف مقابل: ۱۵,۰۰۰ تومان\n\n' +
         'نام غذا و توضیحات را بنویسید\n' +
-        '(مثلا: آش رشته، قورمه سبزی، کلوچه محلی...)',
+        '(مثلا: آش رشته، قورمه سبزی، کلوچه محلی...)\n\n' +
+        '⚖️ <b>سلب مسئوليت:</b> مديريت و مالکيت ربات در قبال آلودگي، ناقص بودن يا بدعهدي در مبادله غذا هيچ مسئوليتي ندارد؛ همه موارد به عهده طرفين معامله است.',
       parse_mode: 'HTML',
       reply_markup: {
-        inline_keyboard: [[{ text: '🍲 دیدن غذاهای معاوضه', callback_data: 'list_homefood' }]],
+        inline_keyboard: [
+          [{ text: '🍲 دیدن غذاهای معاوضه', callback_data: 'list_homefood' }],
+          [{ text: '🏠 منوی اصلی', callback_data: 'back_main' }, { text: '🔙 بازگشت', callback_data: 'back_main' }],
+        ],
       },
     })
     return
   }
 
   if (data === 'list_homefood') {
-    await sendCategoryAds(tgId, 'غذای خانگی')
+    await sendCategoryAds(tgId, 'غذای خانگی', 'swap_food')
     return
   }
 
@@ -161,6 +229,7 @@ export default async function (update) {
         inline_keyboard: [
           [{ text: '➕ ثبت درخواست استخدام', callback_data: 'apply_job' }],
           [{ text: '📋 دیدن درخواست‌های دیگران', callback_data: 'list_job_requests' }],
+          [{ text: '🏠 منوی اصلی', callback_data: 'back_main' }, { text: '🔙 بازگشت', callback_data: 'back_main' }],
         ],
       },
     })
@@ -175,24 +244,27 @@ export default async function (update) {
         'چه کاری می‌توانید انجام دهید؟\n' +
         '(مثلا: راننده وانت، نقاش ساختمان، نظافت‌چی، آشپز...)',
       parse_mode: 'HTML',
+      reply_markup: navKeyboard('back_main'),
     })
     return
   }
 
   if (data === 'list_job_requests') {
-    await sendCategoryAds(tgId, 'شغل')
+    await sendCategoryAds(tgId, 'شغل', 'apply_job_menu')
     return
   }
 
   if (data === 'apply_rest_food_menu') {
     await api.sendMessage({
       chat_id: tgId,
-      text: '🍽 <b>غذای اضافه رستوران</b>\n\nانتخاب کنيد:',
+      text: '🍽 <b>غذای اضافه و تخفیف‌دار</b>\n\n' +
+        'رستوران‌ها، فست‌فودها، ساندویچی‌ها، کافه‌ها و...\n\nانتخاب کنيد:',
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [
-          [{ text: '➕ ثبت غذای اضافه رستوران', callback_data: 'apply_rest_food' }],
-          [{ text: '📋 دیدن غذاهای رستوران‌ها', callback_data: 'list_rest_food' }],
+          [{ text: '➕ ثبت غذای اضافه و تخفیف‌دار', callback_data: 'apply_rest_food' }],
+          [{ text: '📋 دیدن غذاهای تخفیف‌دار', callback_data: 'list_rest_food' }],
+          [{ text: '🏠 منوی اصلی', callback_data: 'back_main' }, { text: '🔙 بازگشت', callback_data: 'back_main' }],
         ],
       },
     })
@@ -203,16 +275,18 @@ export default async function (update) {
     await setSession(tgId, 'rest_field', { type: 'فروش', category: 'غذا' })
     await api.sendMessage({
       chat_id: tgId,
-      text: '🍽 <b>ثبت غذای اضافه رستوران</b>\n\n' +
-        'نام رستوران و غذایی که اضافه دارد را بنویسید\n' +
-        '(مثلا: رستوران سعادت — قورمه سبزی)',
+      text: '🍽 <b>ثبت غذای اضافه و تخفیف‌دار</b>\n\n' +
+        'کدام مکان و چه غذایی؟\n' +
+        '(مثلا: فست‌فود آرش — پیتزا، ساندویچی مرکزی — ساندویچ، کافه رویا — قهوه ارزان)\n\n' +
+        '⚖️ <b>سلب مسئوليت:</b> مديريت و مالکيت ربات در قبال آلودگي، فاسد بودن يا بدعهدي در فروش غذا هيچ مسئوليتي ندارد؛ همه موارد به عهده طرفين معامله است.',
       parse_mode: 'HTML',
+      reply_markup: navKeyboard('back_main'),
     })
     return
   }
 
   if (data === 'list_rest_food') {
-    await sendCategoryAds(tgId, 'غذا')
+    await sendCategoryAds(tgId, 'غذا', 'apply_rest_food_menu')
     return
   }
 
@@ -225,6 +299,7 @@ export default async function (update) {
         inline_keyboard: [
           [{ text: '➕ ثبت آگهی نیاز به نیرو', callback_data: 'apply_workforce' }],
           [{ text: '📋 دیدن آگهی‌های نیروی کار', callback_data: 'list_workforce' }],
+          [{ text: '🏠 منوی اصلی', callback_data: 'back_main' }, { text: '🔙 بازگشت', callback_data: 'back_main' }],
         ],
       },
     })
@@ -239,12 +314,13 @@ export default async function (update) {
         'چه نیرویی لازم دارید؟\n' +
         '(مثلا: راننده وانت، نقاش ساختمان، آشپز، نظافت‌چی...)',
       parse_mode: 'HTML',
+      reply_markup: navKeyboard('back_main'),
     })
     return
   }
 
   if (data === 'list_workforce') {
-    await sendCategoryAds(tgId, 'شغل')
+    await sendCategoryAds(tgId, 'شغل', 'apply_workforce_menu')
     return
   }
 
@@ -258,6 +334,7 @@ export default async function (update) {
           [{ text: '🔴 ثبت آگهی گمشده', callback_data: 'lost_item' }],
           [{ text: '🟢 ثبت آگهی پیداشده', callback_data: 'found_item' }],
           [{ text: '📋 دیدن آگهی‌ها', callback_data: 'list_lost_found' }],
+          [{ text: '🏠 منوی اصلی', callback_data: 'back_main' }, { text: '🔙 بازگشت', callback_data: 'back_main' }],
         ],
       },
     })
@@ -272,6 +349,7 @@ export default async function (update) {
         'چه چیزی گم کرده‌اید؟\n' +
         '(مثلا: گوشی سامسونگ، کیف پول، گربه...)',
       parse_mode: 'HTML',
+      reply_markup: navKeyboard('back_main'),
     })
     return
   }
@@ -284,12 +362,13 @@ export default async function (update) {
         'چه چیزی پیدا کرده‌اید؟\n' +
         '(مثلا: گوشی سامسونگ، پول نقد، دسته کلید...)',
       parse_mode: 'HTML',
+      reply_markup: navKeyboard('back_main'),
     })
     return
   }
 
   if (data === 'list_lost_found') {
-    await sendCategoryAds(tgId, 'گمشده و پیداشده')
+    await sendCategoryAds(tgId, 'گمشده و پیداشده', 'lost_found_menu')
     return
   }
 
@@ -303,6 +382,7 @@ export default async function (update) {
         inline_keyboard: [
           [{ text: '➕ ثبت نوبت خالی', callback_data: 'register_slot' }],
           [{ text: '📋 دیدن نوبت‌های خالی', callback_data: 'list_slots' }],
+          [{ text: '🏠 منوی اصلی', callback_data: 'back_main' }, { text: '🔙 بازگشت', callback_data: 'back_main' }],
         ],
       },
     })
@@ -317,12 +397,13 @@ export default async function (update) {
         'کدام مکان یا خدمت؟\n' +
         '(مثلا: سالن ورزشی آرش، چمن مصنوعی، استخر، آرایشگاه، مطب دکتر...)',
       parse_mode: 'HTML',
+      reply_markup: navKeyboard('back_main'),
     })
     return
   }
 
   if (data === 'list_slots') {
-    await sendCategoryAds(tgId, 'نوبت خالی')
+    await sendCategoryAds(tgId, 'نوبت خالی', 'slot_menu')
     return
   }
 
@@ -344,12 +425,12 @@ export default async function (update) {
 
     if (session.state === 'ad_category') {
       await setSession(tgId, 'ad_title', { ...session.data, category: CATEGORY_NAMES[data] })
-      await api.sendMessage({ chat_id: tgId, text: 'عنوان آگهي را وارد کنيد:' })
+      await api.sendMessage({ chat_id: tgId, text: 'عنوان آگهي را وارد کنيد:', reply_markup: navKeyboard('back_main') })
       return
     }
 
     if (session.state === 'list_category') {
-      await sendCategoryAds(tgId, CATEGORY_NAMES[data])
+      await sendCategoryAds(tgId, CATEGORY_NAMES[data], 'list_ads')
       return
     }
   }
